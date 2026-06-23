@@ -1,0 +1,29 @@
+# Build artifacts
+build/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Xcode
+*.xcuserdata
+*.xcworkspace/xcuserdata
+*.xcodeproj/xcuserdata
+DerivedData/
+
+# Swift
+.swiftpm/
+Package.resolved
+
+# IDE
+.idea/
+.vscode/
+
+# User data (generated at runtime)
+~/.translate/
