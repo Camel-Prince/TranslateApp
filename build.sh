@@ -93,3 +93,9 @@ echo ""
 echo "🔧 Requires Python 3 with pymupdf for paper import:"
 echo "   pip3 install pymupdf"
 echo "============================================"
+echo ""
+
+# Auto-copy to /Applications
+echo "📦 Copying to /Applications/..."
+cp -rf "$APP_BUNDLE" /Applications/
+echo "✅ /Applications/TranslateApp.app updated"
