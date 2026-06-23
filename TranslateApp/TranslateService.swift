@@ -272,18 +272,8 @@ class TranslateService {
         
         switch config.directionMode {
         case .toB:
-            // Always translate to langB by default, but respect user toggle
-            let target = directionToB ? config.langB : config.langA
-            
-            // If source already looks like the target language, flip
-            let targetIsCJK = APIConfig.isCJK(target)
-            let sourceIsCJK = cjkCharacterRatio(sourceText) > 0.3
-            
-            if targetIsCJK == sourceIsCJK {
-                // Source and target are same type — flip to the other language
-                return target == config.langB ? config.langA : config.langB
-            }
-            return target
+            // Explicit direction: user chose →langB or →langA, respect it
+            return directionToB ? config.langB : config.langA
             
         case .auto:
             // Auto-detect: CJK → non-CJK lang, Latin → CJK lang
@@ -292,10 +282,8 @@ class TranslateService {
             let bIsCJK = APIConfig.isCJK(config.langB)
             
             if sourceIsCJK {
-                // Return the non-CJK language
                 return aIsCJK ? config.langB : config.langA
             } else {
-                // Return the CJK language
                 return bIsCJK ? config.langB : config.langA
             }
         }

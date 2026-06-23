@@ -29,6 +29,7 @@ class PopupPanel: NSPanel, NSWindowDelegate {
     
     // Callbacks
     var onDirectionToggle: (() -> Void)?
+    var onRetranslate: ((String) -> Void)?
     
     // Font scaling
     private var baseFontSizeOriginal: CGFloat = 11.0
@@ -199,6 +200,11 @@ class PopupPanel: NSPanel, NSWindowDelegate {
         TranslateService.shared.toggleDirection()
         updateDirectionLabel()
         onDirectionToggle?()
+        // Re-translate current text immediately
+        let currentText = originalLabel.stringValue
+        if !currentText.isEmpty {
+            onRetranslate?(currentText)
+        }
         print("[PopupPanel] 翻译方向已切换: \(TranslateService.shared.directionLabel)")
     }
     

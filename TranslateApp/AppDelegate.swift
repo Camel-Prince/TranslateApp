@@ -76,7 +76,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusBar()
         popupPanel = PopupPanel()
         popupPanel.onDirectionToggle = {
-            // Direction button updates itself; rebuild menu if needed
+            // Direction button updates itself
+        }
+        popupPanel.onRetranslate = { [weak self] text in
+            self?.retranslate(text: text)
         }
         
         hotkeyManager = HotkeyManager { [weak self] in
@@ -523,6 +526,58 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     // MARK: - Hotkey Handler
+    
+    /// Re-translate current popup text after direction toggle
+    private func retranslate(text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        let mouseLocation = NSEvent.mouseLocation
+        
+        // Check cache for single words (skip context matches)
+        if self.isSingleWord(trimmed) {
+            let hasContext = TranslateService.shared.hasContextMatch(for: trimmed)
+            if !hasContext, let cached = VocabularyDB.shared.lookup(trimmed) {
+                DispatchQueue.main.async {
+                    self.popupPanel.setMode("📚 本地词库")
+                    self.popupPanel.showDictionaryEntry(at: mouseLocation,
+                                                       originalText: trimmed,
+                                                       entry: cached)
+                }
+                return
+            }
+        }
+        
+        DispatchQueue.main.async {
+            let mode = self.isContextActive ? "🌐 AI翻译 · 📄语境" : "🌐 AI翻译"
+            self.popupPanel.setMode(mode)
+            self.popupPanel.showLoading(at: mouseLocation, originalText: trimmed)
+        }
+        
+        Task {
+            let hadContextMatch = TranslateService.shared.hasContextMatch(for: trimmed)
+            let result = await TranslateService.shared.translate(text: trimmed)
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let translateResult):
+                    switch translateResult {
+                    case .dictionary(let entry):
+                        if !hadContextMatch {
+                            VocabularyDB.shared.save(word: trimmed, entry: entry, domain: "cs")
+                        }
+                        self.popupPanel.showDictionaryEntry(at: mouseLocation,
+                                                           originalText: trimmed,
+                                                           entry: entry)
+                    case .translation(let translation):
+                        self.popupPanel.showResult(originalText: trimmed,
+                                                  translatedText: translation)
+                    }
+                case .failure(let error):
+                    self.popupPanel.showError(message: error.localizedDescription)
+                }
+            }
+        }
+    }
     
     private func handleHotkey() {
         TextGrabber.grabSelectedText { [weak self] text in

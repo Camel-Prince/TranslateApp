@@ -38,13 +38,18 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
     private func buildUI() {
         guard let cv = self.contentView else { return }
         
+        // Use a flipped container so y=0 is at the TOP (natural top-to-bottom flow)
+        let container = FlippedView(frame: cv.bounds)
+        container.autoresizingMask = [.width, .height]
+        cv.addSubview(container)
+        
         let p: CGFloat = 14           // edge padding
         let lw: CGFloat = 64          // label width
         let fh: CGFloat = 26          // field height
         let sp: CGFloat = 10          // row spacing
         let fw = panelWidth - p * 2 - lw - 6  // field width
         
-        var y: CGFloat = 0  // builds from bottom up
+        var y: CGFloat = 12  // top padding in flipped coords
         
         func row(_ height: CGFloat = fh + sp) -> CGFloat {
             let r = y; y += height; return r
@@ -53,7 +58,7 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         // --- Status bar (top) ---
         let infoY = row(22 + sp + 4)
         let infoRow = NSView(frame: NSRect(x: p, y: infoY, width: fw + lw + 6, height: 22))
-        cv.addSubview(infoRow)
+        container.addSubview(infoRow)
         
         let indicator = NSImageView(frame: NSRect(x: 0, y: 6, width: 10, height: 10))
         indicator.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
@@ -73,67 +78,66 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         infoRow.addSubview(testButton)
         
         // Separator
-        sep(cv, y)
-        _ = row(sp + 6)
+        sep(container, y); _ = row(sp + 6)
         
         // --- API Section ---
         let apiLabel = NSTextField(labelWithString: "API 配置")
         apiLabel.font = NSFont.boldSystemFont(ofSize: 11)
         apiLabel.textColor = .secondaryLabelColor
         apiLabel.frame = NSRect(x: p, y: y, width: 200, height: 14)
-        cv.addSubview(apiLabel)
+        container.addSubview(apiLabel)
         _ = row(16 + sp - 2)
         
         // Protocol
-        let pl = fieldLabel("协议", y, cv)
+        let pl = fieldLabel("协议", y, container)
         protocolPopup = NSPopUpButton(frame: NSRect(x: p + lw + 6, y: y - 2, width: fw, height: fh), pullsDown: false)
         protocolPopup.addItems(withTitles: APIProtocol.allCases.map { $0.displayName })
         protocolPopup.target = self; protocolPopup.action = #selector(protocolChanged)
-        cv.addSubview(protocolPopup); cv.addSubview(pl)
+        container.addSubview(protocolPopup); container.addSubview(pl)
         _ = row()
         
         // URL
-        let ul = fieldLabel("URL", y, cv)
-        urlField = field(p + lw + 6, y, fw, fh, "http://localhost:8765"); cv.addSubview(urlField); cv.addSubview(ul)
+        let ul = fieldLabel("URL", y, container)
+        urlField = field(p + lw + 6, y, fw, fh, "http://localhost:8765"); container.addSubview(urlField); container.addSubview(ul)
         _ = row()
         
         // Key
-        let kl = fieldLabel("API Key", y, cv)
+        let kl = fieldLabel("API Key", y, container)
         keyField = NSSecureTextField(frame: NSRect(x: p + lw + 6, y: y, width: fw, height: fh))
         keyField.font = NSFont.systemFont(ofSize: 12); keyField.placeholderString = "sk-..."
-        cv.addSubview(keyField); cv.addSubview(kl)
+        container.addSubview(keyField); container.addSubview(kl)
         _ = row()
         
         // Model
-        let ml = fieldLabel("模型", y, cv)
-        modelField = field(p + lw + 6, y, fw, fh, "deepseek-chat"); cv.addSubview(modelField); cv.addSubview(ml)
+        let ml = fieldLabel("模型", y, container)
+        modelField = field(p + lw + 6, y, fw, fh, "deepseek-chat"); container.addSubview(modelField); container.addSubview(ml)
         _ = row(sp + 4)
         
         // Separator
-        sep(cv, y); _ = row(sp + 6)
+        sep(container, y); _ = row(sp + 6)
         
         // --- Translation Settings ---
         let transLabel = NSTextField(labelWithString: "翻译设置")
         transLabel.font = NSFont.boldSystemFont(ofSize: 11)
         transLabel.textColor = .secondaryLabelColor
         transLabel.frame = NSRect(x: p, y: y, width: 200, height: 14)
-        cv.addSubview(transLabel); _ = row(16 + sp - 2)
+        container.addSubview(transLabel); _ = row(16 + sp - 2)
         
         // Language A
-        let lal = fieldLabel("语言 A", y, cv)
-        langAField = field(p + lw + 6, y, fw, fh, "英文"); cv.addSubview(langAField); cv.addSubview(lal)
+        let lal = fieldLabel("语言 A", y, container)
+        langAField = field(p + lw + 6, y, fw, fh, "英文"); container.addSubview(langAField); container.addSubview(lal)
         _ = row()
         
         // Language B
-        let lbl = fieldLabel("语言 B", y, cv)
-        langBField = field(p + lw + 6, y, fw, fh, "中文"); cv.addSubview(langBField); cv.addSubview(lbl)
+        let lbl = fieldLabel("语言 B", y, container)
+        langBField = field(p + lw + 6, y, fw, fh, "中文"); container.addSubview(langBField); container.addSubview(lbl)
         _ = row()
         
         // Direction mode
-        let dl = fieldLabel("默认方向", y, cv)
+        let dl = fieldLabel("默认方向", y, container)
         directionPopup = NSPopUpButton(frame: NSRect(x: p + lw + 6, y: y - 2, width: fw, height: fh), pullsDown: false)
         directionPopup.addItems(withTitles: DirectionMode.allCases.map { $0.displayName })
-        cv.addSubview(directionPopup); cv.addSubview(dl)
+        container.addSubview(directionPopup); container.addSubview(dl)
         _ = row(sp + 10)
         
         // --- Buttons ---
@@ -141,12 +145,12 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         let cancelBtn = NSButton(title: "取消", target: self, action: #selector(close))
         cancelBtn.frame = NSRect(x: p, y: y, width: btnW, height: btnH)
         cancelBtn.bezelStyle = .rounded; cancelBtn.keyEquivalent = "\u{1b}"
-        cv.addSubview(cancelBtn)
+        container.addSubview(cancelBtn)
         
         let saveBtn = NSButton(title: "保存", target: self, action: #selector(saveConfig))
         saveBtn.frame = NSRect(x: panelWidth - p - btnW, y: y, width: btnW, height: btnH)
         saveBtn.bezelStyle = .rounded; saveBtn.keyEquivalent = "\r"; saveBtn.isHighlighted = true
-        cv.addSubview(saveBtn)
+        container.addSubview(saveBtn)
         _ = row(btnH + p)
         
         // --- Resize window to fit ---
@@ -266,4 +270,9 @@ extension Array {
     subscript(safe idx: Int) -> Element? {
         indices.contains(idx) ? self[idx] : nil
     }
+}
+
+/// Simple NSView with flipped coordinate system (y=0 at top)
+class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }
