@@ -32,22 +32,44 @@ class TranslateService {
     /// Active paper context for domain-specific translation
     var paperContext: [String: String]? = nil
     
+    /// Current translation direction override (toggle button)
+    /// true = translate to langB, false = translate to langA
+    var directionToB: Bool = true
+    
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
         session = URLSession(configuration: config)
         currentConfig = ConfigManager.shared.autoDetect()
+        directionToB = true  // default: translate to langB (中文)
     }
     
     /// Reload config (called after user changes settings)
     func reloadConfig() {
         currentConfig = ConfigManager.shared.autoDetect()
-        print("[TranslateService] Config reloaded: \(currentConfig.url) (\(currentConfig.protocol.displayName))")
+        directionToB = true  // reset to default
+        print("[TranslateService] Config reloaded: \(currentConfig.url) (\(currentConfig.protocol.displayName)), 翻译方向: →\(currentConfig.langB)")
     }
     
     /// Get current config (for display)
     var config: APIConfig { currentConfig }
+    
+    /// Direction label for toolbar display
+    var directionLabel: String {
+        return "→\(currentConfig.langB)"
+    }
+    
+    /// Toggle translation direction
+    func toggleDirection() {
+        directionToB.toggle()
+        print("[TranslateService] 翻译方向切换: →\(currentConfig.langB)=\(directionToB)")
+    }
+    
+    /// Reset direction to default (langB)
+    func resetDirection() {
+        directionToB = true
+    }
     
     // MARK: - Public API
     
@@ -95,40 +117,10 @@ class TranslateService {
     // MARK: - Dictionary Mode
     
     private func translateWord(_ word: String) async -> Result<TranslateResult, TranslateError> {
-        let targetLang = detectLanguage(word)
+        let target = resolveTargetLanguage(for: word)
         let contextMatch = findContextMatch(for: word)
         
-        let systemPrompt: String
-        if targetLang == .chinese {
-            systemPrompt = """
-            你是一个计算机科学/AI领域的专业词典。用户输入英文单词或术语，请返回严格JSON格式的词典条目。
-            
-            要求：
-            1. phonetic: 国际音标（如 /əˈtenʃən/）
-            2. definitions: 所有常见词性和释义，CS/AI领域释义优先排列
-            3. cs_note: 如果该词在CS/AI领域有特殊含义，给出简短说明（1-2句话）
-            4. examples: 2-3个CS/AI领域的例句（英文）
-            5. phrases: 相关的CS/AI领域术语组合
-            
-            严格返回以下JSON格式，不要有任何其他文字：
-            {"word":"xxx","phonetic":"/xxx/","definitions":[{"pos":"n.","cn":"中文释义","en":"English def"}],"cs_note":"CS领域说明","examples":["example sentence"],"phrases":["related term"]}
-            """
-        } else {
-            systemPrompt = """
-            你是一个计算机科学/AI领域的专业词典。用户输入中文词汇，请返回严格JSON格式的词典条目。
-            
-            要求：
-            1. 给出对应的英文术语
-            2. definitions: 英文释义，CS/AI领域释义优先
-            3. cs_note: CS/AI领域的用法说明
-            4. examples: 英文例句
-            5. phrases: 相关英文术语
-            
-            严格返回以下JSON格式，不要有任何其他文字：
-            {"word":"英文术语","phonetic":"/xxx/","definitions":[{"pos":"n.","cn":"原中文","en":"English definition"}],"cs_note":"CS note","examples":["example"],"phrases":["related"]}
-            """
-        }
-        
+        let systemPrompt = buildDictionaryPrompt(target: target)
         var finalPrompt = systemPrompt
         
         if let match = contextMatch {
@@ -164,6 +156,42 @@ class TranslateService {
         }
     }
     
+    /// Build dictionary prompt based on target language
+    private func buildDictionaryPrompt(target: String) -> String {
+        // Determine if target is Chinese/CJK-like
+        let targetIsCJK = APIConfig.isCJK(target)
+        
+        if targetIsCJK {
+            return """
+            你是一个计算机科学/AI领域的专业词典。用户输入英文单词或术语，请将释义翻译为\(target)。
+            
+            要求：
+            1. phonetic: 国际音标（如 /əˈtenʃən/）
+            2. definitions: 所有常见词性和释义，CS/AI领域释义优先排列。中文释义使用\(target)
+            3. cs_note: 如果该词在CS/AI领域有特殊含义，给出简短说明（1-2句话，用\(target)）
+            4. examples: 2-3个CS/AI领域的例句（英文）
+            5. phrases: 相关的CS/AI领域术语组合
+            
+            严格返回以下JSON格式，不要有任何其他文字：
+            {"word":"xxx","phonetic":"/xxx/","definitions":[{"pos":"n.","cn":"\(target)释义","en":"English def"}],"cs_note":"CS领域说明","examples":["example sentence"],"phrases":["related term"]}
+            """
+        } else {
+            return """
+            你是一个计算机科学/AI领域的专业词典。用户输入词汇，请返回严格JSON格式的词典条目，所有释义使用\(target)。
+            
+            要求：
+            1. 给出\(target)术语翻译
+            2. definitions: \(target)释义，CS/AI领域释义优先
+            3. cs_note: CS/AI领域的用法说明（用\(target)）
+            4. examples: 英文例句
+            5. phrases: 相关英文术语
+            
+            严格返回以下JSON格式，不要有任何其他文字：
+            {"word":"\(target)术语","phonetic":"/xxx/","definitions":[{"pos":"n.","cn":"原词","en":"\(target) definition"}],"cs_note":"CS note","examples":["example"],"phrases":["related"]}
+            """
+        }
+    }
+    
     // MARK: - Context Matching
     
     func hasContextMatch(for word: String) -> Bool {
@@ -175,12 +203,10 @@ class TranslateService {
         
         let lowerWord = word.lowercased().trimmingCharacters(in: .whitespaces)
         
-        // 1. Exact key match
         for (key, value) in context {
             if key.lowercased() == lowerWord { return (key, value) }
         }
         
-        // 2. Abbreviation match
         for (key, value) in context {
             if let openParen = key.range(of: "("),
                let closeParen = key.range(of: ")") {
@@ -190,7 +216,6 @@ class TranslateService {
             }
         }
         
-        // 3. Prefix match
         for (key, value) in context {
             let lowerKey = key.lowercased()
             if lowerKey == lowerWord || lowerKey.hasPrefix(lowerWord + " ") {
@@ -204,33 +229,15 @@ class TranslateService {
     // MARK: - Sentence Translation
     
     private func translateSentence(_ text: String) async -> Result<String, TranslateError> {
-        let targetLang = detectLanguage(text)
+        let target = resolveTargetLanguage(for: text)
         
-        var systemPrompt: String
-        if targetLang == .chinese {
-            systemPrompt = """
-            你是一个计算机科学/AI领域的专业翻译。将用户输入翻译为中文。
-            
-            翻译原则：
-            1. 专业术语使用CS/AI领域的标准译法（如 attention→注意力机制，transformer→Transformer，embedding→嵌入，fine-tuning→微调）
-            2. 保留无需翻译的专有名词（如 GPT、BERT、ResNet、Adam）
-            3. 译文要自然流畅，符合中文学术表达习惯
-            4. 只输出翻译结果，不要解释
-            """
-        } else {
-            systemPrompt = """
-            你是一个计算机科学/AI领域的专业翻译。将用户输入翻译为英文。
-            
-            翻译原则：
-            1. 使用CS/AI领域的标准英文术语
-            2. 保持学术论文的正式语气
-            3. 只输出翻译结果，不要解释
-            """
-        }
+        let systemPrompt = buildTranslationPrompt(target: target)
         
+        // Inject paper context
+        var finalPrompt = systemPrompt
         if let context = paperContext, !context.isEmpty {
             let termsList = context.prefix(20).map { "\($0.key) → \($0.value)" }.joined(separator: "\n")
-            systemPrompt += """
+            finalPrompt += """
             
             
             当前论文语境中的术语对照：
@@ -239,7 +246,58 @@ class TranslateService {
             """
         }
         
-        return await callAPI(systemPrompt: systemPrompt, userText: text)
+        return await callAPI(systemPrompt: finalPrompt, userText: text)
+    }
+    
+    private func buildTranslationPrompt(target: String) -> String {
+        return """
+        你是一个计算机科学/AI领域的专业翻译。将用户输入翻译为\(target)。
+        
+        翻译原则：
+        1. 专业术语使用CS/AI领域的标准译法
+        2. 保留无需翻译的专有名词（如 GPT、BERT、ResNet、Adam、Transformer）
+        3. 保留公式和数学符号不翻译
+        4. 译文要自然流畅，符合学术表达习惯
+        5. 只输出翻译结果，不要解释
+        """
+    }
+    
+    // MARK: - Language Direction Resolver
+    
+    /// Determine target language for the given source text
+    /// - Returns: target language name (e.g., "中文", "英文")
+    private func resolveTargetLanguage(for sourceText: String) -> String {
+        let config = currentConfig
+        
+        switch config.directionMode {
+        case .toB:
+            // Always translate to langB by default, but respect user toggle
+            let target = directionToB ? config.langB : config.langA
+            
+            // If source already looks like the target language, flip
+            let targetIsCJK = APIConfig.isCJK(target)
+            let sourceIsCJK = cjkCharacterRatio(sourceText) > 0.3
+            
+            if targetIsCJK == sourceIsCJK {
+                // Source and target are same type — flip to the other language
+                return target == config.langB ? config.langA : config.langB
+            }
+            return target
+            
+        case .auto:
+            // Auto-detect: CJK → non-CJK lang, Latin → CJK lang
+            let sourceIsCJK = cjkCharacterRatio(sourceText) > 0.3
+            let aIsCJK = APIConfig.isCJK(config.langA)
+            let bIsCJK = APIConfig.isCJK(config.langB)
+            
+            if sourceIsCJK {
+                // Return the non-CJK language
+                return aIsCJK ? config.langB : config.langA
+            } else {
+                // Return the CJK language
+                return bIsCJK ? config.langB : config.langA
+            }
+        }
     }
     
     // MARK: - API Call (supports both OpenAI and Anthropic)
@@ -257,7 +315,6 @@ class TranslateService {
         let body: Data
         
         if config.protocol == .anthropic {
-            // Anthropic Messages API format
             let payload: [String: Any] = [
                 "model": config.model,
                 "max_tokens": 2048,
@@ -275,7 +332,6 @@ class TranslateService {
             request.setValue(config.apiKey, forHTTPHeaderField: "x-api-key")
             request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         } else {
-            // OpenAI-compatible API format
             let payload: [String: Any] = [
                 "model": config.model,
                 "messages": [
@@ -309,7 +365,6 @@ class TranslateService {
                 return .failure(.apiError("HTTP \(httpResponse.statusCode): \(bodyStr.prefix(200))"))
             }
             
-            // Parse response based on protocol
             let content: String
             if config.protocol == .anthropic {
                 content = parseAnthropicResponse(data) ?? ""
@@ -385,17 +440,7 @@ class TranslateService {
         }
     }
     
-    // MARK: - Language Detection
-    
-    enum TargetLanguage {
-        case chinese
-        case english
-    }
-    
-    private func detectLanguage(_ text: String) -> TargetLanguage {
-        let ratio = cjkCharacterRatio(text)
-        return ratio > 0.3 ? .english : .chinese
-    }
+    // MARK: - Unicode Helpers
     
     private func cjkCharacterRatio(_ text: String) -> Double {
         let cjkCount = text.unicodeScalars.filter { scalar in

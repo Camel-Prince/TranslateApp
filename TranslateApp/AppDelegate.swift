@@ -75,6 +75,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         setupStatusBar()
         popupPanel = PopupPanel()
+        popupPanel.onDirectionToggle = {
+            // Direction button updates itself; rebuild menu if needed
+        }
         
         hotkeyManager = HotkeyManager { [weak self] in
             self?.handleHotkey()
@@ -633,6 +636,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             settingsPanel = SettingsPanel()
             settingsPanel?.onSave = { [weak self] config in
                 TranslateService.shared.reloadConfig()
+                self?.popupPanel.updateDirectionLabel()
                 self?.rebuildMenu()
                 print("[TranslateApp] 🔌 API switched to: \(config.url) (\(config.protocol.displayName))")
             }

@@ -21,6 +21,19 @@ enum APIProtocol: String, Codable, CaseIterable {
     }
 }
 
+/// Translation direction mode
+enum DirectionMode: String, Codable, CaseIterable {
+    case toB = "toB"        // Always translate to langB
+    case auto = "auto"      // Auto-detect source language
+    
+    var displayName: String {
+        switch self {
+        case .toB: return "始终翻译为第二语言"
+        case .auto: return "自动检测方向"
+        }
+    }
+}
+
 /// API provider configuration
 struct APIConfig: Codable {
     var provider: String          // "deepseek-proxy" or "custom"
@@ -30,14 +43,29 @@ struct APIConfig: Codable {
     var `protocol`: APIProtocol
     var custom: Bool              // true = user-configured, false = auto-detected proxy
     
+    // Translation language pair
+    var langA: String             // language A (e.g., "英文")
+    var langB: String             // language B (e.g., "中文")
+    var directionMode: DirectionMode  // "toB" or "auto"
+    
     /// Full chat endpoint URL
     var chatURL: String {
         let base = url.hasSuffix("/") ? String(url.dropLast()) : url
-        // If the URL already ends with the chat path, don't append again
         if base.hasSuffix(`protocol`.chatPath) {
             return base
         }
         return base + `protocol`.chatPath
+    }
+    
+    // MARK: - Language helpers
+    
+    /// Is this language primarily written in CJK characters?
+    static func isCJK(_ lang: String) -> Bool {
+        let lower = lang.lowercased()
+        return lower.contains("中") || lower.contains("chinese") ||
+               lower.contains("日") || lower.contains("japanese") ||
+               lower.contains("韩") || lower.contains("korean") ||
+               lower.contains("漢") || lower.contains("한")
     }
     
     /// Default config for deepseek-copilot-proxy
@@ -47,7 +75,10 @@ struct APIConfig: Codable {
         apiKey: "placeholder",
         model: "deepseek-chat",
         protocol: .openai,
-        custom: false
+        custom: false,
+        langA: "英文",
+        langB: "中文",
+        directionMode: .toB
     )
 }
 

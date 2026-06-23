@@ -21,10 +21,14 @@ class PopupPanel: NSPanel, NSWindowDelegate {
     // Toolbar
     private var toolbarStack: NSStackView!
     private var modeLabel: NSTextField!
+    private var directionButton: NSButton!
     private var fontSizeLabel: NSTextField!
     private var copyButton: NSButton!
     private var pinButton: NSButton!
     private var isPinned: Bool = false
+    
+    // Callbacks
+    var onDirectionToggle: (() -> Void)?
     
     // Font scaling
     private var baseFontSizeOriginal: CGFloat = 11.0
@@ -157,6 +161,9 @@ class PopupPanel: NSPanel, NSWindowDelegate {
         modeLabel.textColor = .tertiaryLabelColor
         modeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         
+        // Direction toggle button
+        directionButton = createDirectionButton()
+        
         // Spacer
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
@@ -176,6 +183,7 @@ class PopupPanel: NSPanel, NSWindowDelegate {
         pinButton = createToolbarButton(title: "📌", action: #selector(togglePin))
         
         toolbarStack.addArrangedSubview(modeLabel)
+        toolbarStack.addArrangedSubview(directionButton)
         toolbarStack.addArrangedSubview(spacer)
         toolbarStack.addArrangedSubview(fontSizeLabel)
         toolbarStack.addArrangedSubview(copyButton)
@@ -183,6 +191,30 @@ class PopupPanel: NSPanel, NSWindowDelegate {
         
         contentStack.addArrangedSubview(toolbarStack)
         toolbarStack.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: -panelPadding * 2).isActive = true
+    }
+    
+    private func createDirectionButton() -> NSButton {
+        let label = TranslateService.shared.directionLabel
+        let btn = NSButton(title: label, target: self, action: #selector(toggleDirection))
+        btn.isBordered = false
+        btn.setButtonType(.momentaryChange)
+        let btnFontSize = baseFontSizeToolbar * fontScale
+        btn.font = NSFont.systemFont(ofSize: btnFontSize, weight: .medium)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.setContentHuggingPriority(.required, for: .horizontal)
+        btn.toolTip = "点击切换翻译方向"
+        return btn
+    }
+    
+    @objc private func toggleDirection() {
+        TranslateService.shared.toggleDirection()
+        updateDirectionLabel()
+        onDirectionToggle?()
+        print("[PopupPanel] 翻译方向已切换: \(TranslateService.shared.directionLabel)")
+    }
+    
+    func updateDirectionLabel() {
+        directionButton.title = TranslateService.shared.directionLabel
     }
     
     private func createToolbarButton(title: String, action: Selector) -> NSButton {
@@ -273,6 +305,7 @@ class PopupPanel: NSPanel, NSWindowDelegate {
         // Toolbar (proportional)
         let toolbarSize = baseFontSizeToolbar * fontScale
         modeLabel.font = NSFont.systemFont(ofSize: toolbarSize)
+        directionButton.font = NSFont.systemFont(ofSize: toolbarSize, weight: .medium)
         fontSizeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: toolbarSize, weight: .regular)
         copyButton.font = NSFont.systemFont(ofSize: toolbarSize)
         pinButton.font = NSFont.systemFont(ofSize: toolbarSize)
@@ -302,6 +335,7 @@ class PopupPanel: NSPanel, NSWindowDelegate {
         isPinned = false
         pinButton.title = "📌"
         modeLabel.stringValue = currentMode
+        updateDirectionLabel()
         
         positionNearMouse(point, text: originalText)
         makeKeyAndOrderFront(nil)

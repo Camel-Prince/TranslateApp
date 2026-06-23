@@ -10,6 +10,11 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
     private var statusLabel: NSTextField!
     private var testButton: NSButton!
     
+    // Translation settings
+    private var langAField: NSTextField!
+    private var langBField: NSTextField!
+    private var directionPopup: NSPopUpButton!
+    
     var onSave: ((APIConfig) -> Void)?
     
     init() {
@@ -37,7 +42,6 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         let fieldHeight: CGFloat = 26
         let spacing: CGFloat = 10
         
-        // Container
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(container)
@@ -85,17 +89,16 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         nextY += 22 + spacing + 4
         
         // Separator
-        let sep = NSBox()
-        sep.boxType = .separator
-        sep.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(sep)
-        sep.frame = NSRect(x: 0, y: nextY, width: container.frame.width, height: 1)
+        let sep1 = NSBox(); sep1.boxType = .separator; sep1.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(sep1)
+        sep1.frame = NSRect(x: 0, y: nextY, width: container.frame.width, height: 1)
         nextY += 1 + spacing + 4
+        
+        // === API Section ===
         
         // Protocol picker
         let protoLabel = makeLabel("协议", y: nextY, width: labelWidth, height: fieldHeight)
         container.addSubview(protoLabel)
-        
         protocolPopup = NSPopUpButton(frame: NSRect(x: labelWidth + 8, y: nextY - 2, width: fieldWidth, height: fieldHeight), pullsDown: false)
         protocolPopup.addItems(withTitles: APIProtocol.allCases.map { $0.displayName })
         protocolPopup.target = self
@@ -103,31 +106,63 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         container.addSubview(protocolPopup)
         nextY += fieldHeight + spacing
         
-        // URL field
-        let urlLabel = makeLabel("URL", y: nextY, width: labelWidth, height: fieldHeight)
-        container.addSubview(urlLabel)
+        // URL
+        container.addSubview(makeLabel("URL", y: nextY, width: labelWidth, height: fieldHeight))
         urlField = makeTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
         urlField.placeholderString = "http://localhost:8765"
         container.addSubview(urlField)
         nextY += fieldHeight + spacing
         
-        // API Key field
-        let keyLabel = makeLabel("API Key", y: nextY, width: labelWidth, height: fieldHeight)
-        container.addSubview(keyLabel)
+        // Key
+        container.addSubview(makeLabel("API Key", y: nextY, width: labelWidth, height: fieldHeight))
         keyField = NSSecureTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
         keyField.placeholderString = "sk-..."
         container.addSubview(keyField)
         nextY += fieldHeight + spacing
         
-        // Model field
-        let modelLabel = makeLabel("模型", y: nextY, width: labelWidth, height: fieldHeight)
-        container.addSubview(modelLabel)
+        // Model
+        container.addSubview(makeLabel("模型", y: nextY, width: labelWidth, height: fieldHeight))
         modelField = makeTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
         modelField.placeholderString = "deepseek-chat"
         container.addSubview(modelField)
+        nextY += fieldHeight + spacing + 4
+        
+        // Separator
+        let sep2 = NSBox(); sep2.boxType = .separator; sep2.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(sep2)
+        sep2.frame = NSRect(x: 0, y: nextY, width: container.frame.width, height: 1)
+        nextY += 1 + spacing + 4
+        
+        // === Translation Settings ===
+        let transLabel = NSTextField(labelWithString: "翻译设置")
+        transLabel.font = NSFont.boldSystemFont(ofSize: 11)
+        transLabel.textColor = .secondaryLabelColor
+        container.addSubview(transLabel)
+        transLabel.frame = NSRect(x: 0, y: nextY, width: 200, height: 16)
+        nextY += 16 + spacing - 2
+        
+        // Language A
+        container.addSubview(makeLabel("语言 A", y: nextY, width: labelWidth, height: fieldHeight))
+        langAField = makeTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
+        langAField.placeholderString = "英文"
+        container.addSubview(langAField)
+        nextY += fieldHeight + spacing
+        
+        // Language B
+        container.addSubview(makeLabel("语言 B", y: nextY, width: labelWidth, height: fieldHeight))
+        langBField = makeTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
+        langBField.placeholderString = "中文"
+        container.addSubview(langBField)
+        nextY += fieldHeight + spacing
+        
+        // Direction mode
+        container.addSubview(makeLabel("默认方向", y: nextY, width: labelWidth, height: fieldHeight))
+        directionPopup = NSPopUpButton(frame: NSRect(x: labelWidth + 8, y: nextY - 2, width: fieldWidth, height: fieldHeight), pullsDown: false)
+        directionPopup.addItems(withTitles: DirectionMode.allCases.map { $0.displayName })
+        container.addSubview(directionPopup)
         nextY += fieldHeight + spacing + 8
         
-        // Action buttons
+        // === Action buttons ===
         let btnRow = NSStackView()
         btnRow.orientation = .horizontal
         btnRow.spacing = 8
@@ -135,7 +170,7 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         
         let cancelBtn = NSButton(title: "取消", target: self, action: #selector(close))
         cancelBtn.bezelStyle = .rounded
-        cancelBtn.keyEquivalent = "\u{1b}"  // Esc
+        cancelBtn.keyEquivalent = "\u{1b}"
         
         let saveBtn = NSButton(title: "保存", target: self, action: #selector(saveConfig))
         saveBtn.bezelStyle = .rounded
@@ -143,21 +178,17 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         saveBtn.isHighlighted = true
         
         btnRow.addArrangedSubview(cancelBtn)
-        btnRow.addArrangedSubview(NSView()) // spacer
+        btnRow.addArrangedSubview(NSView())
         btnRow.addArrangedSubview(saveBtn)
         
         container.addSubview(btnRow)
         btnRow.frame = NSRect(x: 0, y: nextY, width: container.frame.width, height: 28)
         nextY += 28 + 8
         
-        // Size the window to fit
+        // Size to fit
         let totalHeight = nextY + padding
         self.setContentSize(NSSize(width: panelWidth, height: totalHeight))
-        
-        // Ensure all items fit
         container.frame = NSRect(x: 0, y: 0, width: panelWidth - padding * 2, height: nextY)
-        
-        // Center on screen
         self.center()
     }
     
@@ -189,7 +220,10 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         modelField.stringValue = config.model
         protocolPopup.selectItem(withTitle: config.protocol.displayName)
         
-        // Update status
+        langAField.stringValue = config.langA
+        langBField.stringValue = config.langB
+        directionPopup.selectItem(withTitle: config.directionMode.displayName)
+        
         if !config.custom {
             let reachable = ConfigManager.shared.isProxyReachable()
             if reachable {
@@ -209,12 +243,6 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         let idx = protocolPopup.indexOfSelectedItem
         guard idx >= 0, idx < APIProtocol.allCases.count else { return }
         let proto = APIProtocol.allCases[idx]
-        
-        // Update placeholder based on protocol
-        if !urlField.stringValue.isEmpty {
-            // Don't override user input
-        }
-        // Offer to append chat path
         if proto == .anthropic {
             modelField.placeholderString = "claude-sonnet-4-20250514"
             keyField.placeholderString = "sk-ant-..."
@@ -231,7 +259,6 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         testButton.title = "测试中..."
         testButton.isEnabled = false
         
-        // Build request based on protocol
         var request = URLRequest(url: URL(string: config.chatURL)!)
         request.httpMethod = "POST"
         request.timeoutInterval = 8
@@ -242,8 +269,7 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
             request.httpBody = try? JSONSerialization.data(withJSONObject: [
                 "model": config.model,
                 "messages": [["role": "user", "content": "hi"]],
-                "max_tokens": 1,
-                "stream": false
+                "max_tokens": 1, "stream": false
             ])
         } else {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -260,7 +286,6 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
             DispatchQueue.main.async {
                 self?.testButton.isEnabled = true
                 self?.testButton.title = "测试连接"
-                
                 if let httpResponse = response as? HTTPURLResponse {
                     if httpResponse.statusCode == 200 {
                         self?.statusLabel.stringValue = "✅ 连接成功 (HTTP 200)"
@@ -281,7 +306,7 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         let config = buildConfig()
         ConfigManager.shared.save(config)
         onSave?(config)
-        print("[SettingsPanel] ✅ Config saved: \(config.url) (\(config.protocol.displayName))")
+        print("[SettingsPanel] ✅ Config saved: \(config.url) (\(config.protocol.displayName)), 翻译: \(config.langA)↔\(config.langB)")
         close()
     }
     
@@ -290,19 +315,22 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         let proto = (protoIdx >= 0 && protoIdx < APIProtocol.allCases.count)
             ? APIProtocol.allCases[protoIdx] : APIProtocol.openai
         
+        let dirIdx = directionPopup.indexOfSelectedItem
+        let dirMode = (dirIdx >= 0 && dirIdx < DirectionMode.allCases.count)
+            ? DirectionMode.allCases[dirIdx] : DirectionMode.toB
+        
         return APIConfig(
             provider: "custom",
             url: urlField.stringValue.trimmingCharacters(in: .whitespaces),
             apiKey: keyField.stringValue.trimmingCharacters(in: .whitespaces),
             model: modelField.stringValue.trimmingCharacters(in: .whitespaces),
             protocol: proto,
-            custom: true
+            custom: true,
+            langA: langAField.stringValue.trimmingCharacters(in: .whitespaces),
+            langB: langBField.stringValue.trimmingCharacters(in: .whitespaces),
+            directionMode: dirMode
         )
     }
     
-    // MARK: - Window lifecycle
-    
-    func windowWillClose(_ notification: Notification) {
-        // Window closing without saving — just dismiss
-    }
+    func windowWillClose(_ notification: Notification) {}
 }
