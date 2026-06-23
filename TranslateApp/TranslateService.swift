@@ -57,7 +57,8 @@ class TranslateService {
     
     /// Direction label for toolbar display
     var directionLabel: String {
-        return "→\(currentConfig.langB)"
+        let target = directionToB ? currentConfig.langB : currentConfig.langA
+        return "→\(target)"
     }
     
     /// Toggle translation direction
