@@ -27,6 +27,8 @@ SOURCES=(
     "$SRC_DIR/TranslateService.swift"
     "$SRC_DIR/PopupPanel.swift"
     "$SRC_DIR/VocabularyDB.swift"
+    "$SRC_DIR/ConfigManager.swift"
+    "$SRC_DIR/SettingsPanel.swift"
 )
 
 # Detect architecture

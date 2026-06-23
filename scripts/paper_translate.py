@@ -26,9 +26,43 @@ except ImportError:
     print("ERROR: pymupdf not installed. Run: pip install pymupdf", file=sys.stderr)
     sys.exit(1)
 
-API_ENDPOINT = "http://localhost:8765/v1/chat/completions"
-API_KEY = "placeholder"
-MODEL = "deepseek-chat"
+# --- API Config (shared with TranslateApp) ---
+def _load_config():
+    """Load API config from ~/.translate/config.json, fallback to defaults."""
+    config_path = os.path.expanduser("~/.translate/config.json")
+    try:
+        with open(config_path, "r") as f:
+            cfg = json.load(f)
+        
+        protocol = cfg.get("protocol", "openai")
+        url = cfg["url"].rstrip("/")
+        if not url.endswith("/v1/chat/completions") and not url.endswith("/v1/messages"):
+            if protocol == "anthropic":
+                url += "/v1/messages"
+            else:
+                url += "/v1/chat/completions"
+        
+        return {
+            "endpoint": url,
+            "api_key": cfg.get("api_key", "placeholder"),
+            "model": cfg.get("model", "deepseek-chat"),
+            "protocol": protocol,
+        }
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass
+    
+    return {
+        "endpoint": "http://localhost:8765/v1/chat/completions",
+        "api_key": "placeholder",
+        "model": "deepseek-chat",
+        "protocol": "openai",
+    }
+
+_config = _load_config()
+API_ENDPOINT = _config["endpoint"]
+API_KEY = _config["api_key"]
+MODEL = _config["model"]
+API_PROTOCOL = _config["protocol"]
 MAX_CHUNK_CHARS = 3000  # chars per translation chunk
 
 

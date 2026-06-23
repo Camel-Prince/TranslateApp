@@ -26,8 +26,8 @@ enum TranslateResult {
 class TranslateService {
     static let shared = TranslateService()
     
-    private let endpoint = URL(string: "http://localhost:8765/v1/chat/completions")!
-    private let session: URLSession
+    private var session: URLSession
+    private var currentConfig: APIConfig
     
     /// Active paper context for domain-specific translation
     var paperContext: [String: String]? = nil
@@ -37,7 +37,17 @@ class TranslateService {
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
         session = URLSession(configuration: config)
+        currentConfig = ConfigManager.shared.autoDetect()
     }
+    
+    /// Reload config (called after user changes settings)
+    func reloadConfig() {
+        currentConfig = ConfigManager.shared.autoDetect()
+        print("[TranslateService] Config reloaded: \(currentConfig.url) (\(currentConfig.protocol.displayName))")
+    }
+    
+    /// Get current config (for display)
+    var config: APIConfig { currentConfig }
     
     // MARK: - Public API
     
@@ -46,10 +56,8 @@ class TranslateService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         
         if isSingleWord(trimmed) {
-            // Dictionary mode: get detailed word entry
             return await translateWord(trimmed)
         } else {
-            // Sentence/paragraph mode: CS/AI-aware translation
             let result = await translateSentence(trimmed)
             switch result {
             case .success(let text):
@@ -62,23 +70,18 @@ class TranslateService {
     
     // MARK: - Word Detection
     
-    /// Determine if input is a single word/short term (should use dictionary mode)
     private func isSingleWord(_ text: String) -> Bool {
         let words = text.split(separator: " ")
         
-        // Single word: always dictionary mode
         if words.count == 1 && text.count <= 30 {
-            // But skip if it's a Chinese sentence
             let cjkRatio = cjkCharacterRatio(text)
             if cjkRatio > 0.5 && text.count > 4 {
-                return false  // Chinese sentence, not a word
+                return false
             }
             return true
         }
         
-        // 2-3 word compound terms (common in CS: "machine learning", "neural network")
         if words.count >= 2 && words.count <= 3 && text.count <= 40 {
-            // Check if it looks like a term (no punctuation, not a sentence)
             let hasEndPunctuation = text.last == "." || text.last == "?" || text.last == "!"
             let hasComma = text.contains(",")
             if !hasEndPunctuation && !hasComma {
@@ -93,8 +96,6 @@ class TranslateService {
     
     private func translateWord(_ word: String) async -> Result<TranslateResult, TranslateError> {
         let targetLang = detectLanguage(word)
-        
-        // Find matching context term (exact, abbreviation, or substring)
         let contextMatch = findContextMatch(for: word)
         
         let systemPrompt: String
@@ -130,7 +131,6 @@ class TranslateService {
         
         var finalPrompt = systemPrompt
         
-        // Inject context match (strong hint) — forces the paper-specific translation
         if let match = contextMatch {
             finalPrompt += """
             
@@ -141,7 +141,6 @@ class TranslateService {
             cs_note 中说明它在本文中的具体作用。其余字段（音标、例句、相关术语）正常补充。
             """
         } else if let context = paperContext, !context.isEmpty {
-            // No direct match, but provide general context for disambiguation
             let termsList = context.prefix(25).map { "\($0.key) → \($0.value)" }.joined(separator: "\n")
             finalPrompt += """
             
@@ -155,11 +154,9 @@ class TranslateService {
         
         switch result {
         case .success(let responseText):
-            // Try to parse as JSON dictionary entry
             if let entry = parseDictionaryResponse(responseText, originalWord: word) {
                 return .success(.dictionary(entry))
             } else {
-                // Fallback: return as plain translation
                 return .success(.translation(responseText))
             }
         case .failure(let error):
@@ -169,43 +166,33 @@ class TranslateService {
     
     // MARK: - Context Matching
     
-    /// Public check: does the word match any active context term? (used to bypass cache)
     func hasContextMatch(for word: String) -> Bool {
         return findContextMatch(for: word) != nil
     }
     
-    /// Find a matching term in the paper context for the given word.
-    /// Matches: exact key, abbreviation in parentheses, or word contained in key.
     private func findContextMatch(for word: String) -> (term: String, translation: String)? {
         guard let context = paperContext, !context.isEmpty else { return nil }
         
         let lowerWord = word.lowercased().trimmingCharacters(in: .whitespaces)
         
-        // 1. Exact key match (case-insensitive)
+        // 1. Exact key match
         for (key, value) in context {
-            if key.lowercased() == lowerWord {
-                return (key, value)
-            }
+            if key.lowercased() == lowerWord { return (key, value) }
         }
         
-        // 2. Abbreviation match: word appears in parentheses within a key
-        //    e.g. "SFT" matches "Supervised fine-tuning (SFT)"
+        // 2. Abbreviation match
         for (key, value) in context {
-            // Extract parenthetical abbreviations
             if let openParen = key.range(of: "("),
                let closeParen = key.range(of: ")") {
                 let abbr = String(key[openParen.upperBound..<closeParen.lowerBound])
                     .trimmingCharacters(in: .whitespaces)
-                if abbr.lowercased() == lowerWord {
-                    return (key, value)
-                }
+                if abbr.lowercased() == lowerWord { return (key, value) }
             }
         }
         
-        // 3. The word IS a known abbreviation key, or key starts with the word
+        // 3. Prefix match
         for (key, value) in context {
             let lowerKey = key.lowercased()
-            // word matches the start of a multi-word key (e.g. "attention" → "attention mechanism")
             if lowerKey == lowerWord || lowerKey.hasPrefix(lowerWord + " ") {
                 return (key, value)
             }
@@ -214,7 +201,7 @@ class TranslateService {
         return nil
     }
     
-    // MARK: - Sentence Translation (CS/AI Aware)
+    // MARK: - Sentence Translation
     
     private func translateSentence(_ text: String) async -> Result<String, TranslateError> {
         let targetLang = detectLanguage(text)
@@ -241,7 +228,6 @@ class TranslateService {
             """
         }
         
-        // Inject paper context if available
         if let context = paperContext, !context.isEmpty {
             let termsList = context.prefix(20).map { "\($0.key) → \($0.value)" }.joined(separator: "\n")
             systemPrompt += """
@@ -256,30 +242,60 @@ class TranslateService {
         return await callAPI(systemPrompt: systemPrompt, userText: text)
     }
     
-    // MARK: - API Call
+    // MARK: - API Call (supports both OpenAI and Anthropic)
     
     private func callAPI(systemPrompt: String, userText: String) async -> Result<String, TranslateError> {
-        let body: [String: Any] = [
-            "model": "deepseek-chat",
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": userText]
-            ],
-            "max_tokens": 2048,
-            "stream": false,
-            "temperature": 0.3
-        ]
+        let config = currentConfig
+        guard let url = URL(string: config.chatURL) else {
+            return .failure(.apiError("无效的 API URL"))
+        }
         
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer placeholder", forHTTPHeaderField: "Authorization")
         
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        } catch {
-            return .failure(.apiError("JSON序列化失败"))
+        let body: Data
+        
+        if config.protocol == .anthropic {
+            // Anthropic Messages API format
+            let payload: [String: Any] = [
+                "model": config.model,
+                "max_tokens": 2048,
+                "system": systemPrompt,
+                "messages": [
+                    ["role": "user", "content": userText]
+                ]
+            ]
+            
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
+                return .failure(.apiError("JSON序列化失败"))
+            }
+            body = jsonData
+            
+            request.setValue(config.apiKey, forHTTPHeaderField: "x-api-key")
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        } else {
+            // OpenAI-compatible API format
+            let payload: [String: Any] = [
+                "model": config.model,
+                "messages": [
+                    ["role": "system", "content": systemPrompt],
+                    ["role": "user", "content": userText]
+                ],
+                "max_tokens": 2048,
+                "stream": false,
+                "temperature": 0.3
+            ]
+            
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
+                return .failure(.apiError("JSON序列化失败"))
+            }
+            body = jsonData
+            
+            request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
         }
+        
+        request.httpBody = body
         
         do {
             let (data, response) = try await session.data(for: request)
@@ -289,14 +305,19 @@ class TranslateService {
             }
             
             guard httpResponse.statusCode == 200 else {
-                return .failure(.apiError("HTTP \(httpResponse.statusCode)"))
+                let bodyStr = String(data: data, encoding: .utf8) ?? ""
+                return .failure(.apiError("HTTP \(httpResponse.statusCode): \(bodyStr.prefix(200))"))
             }
             
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let choices = json["choices"] as? [[String: Any]],
-                  let firstChoice = choices.first,
-                  let message = firstChoice["message"] as? [String: Any],
-                  let content = message["content"] as? String else {
+            // Parse response based on protocol
+            let content: String
+            if config.protocol == .anthropic {
+                content = parseAnthropicResponse(data) ?? ""
+            } else {
+                content = parseOpenAIResponse(data) ?? ""
+            }
+            
+            guard !content.isEmpty else {
                 return .failure(.apiError("响应格式错误"))
             }
             
@@ -311,11 +332,30 @@ class TranslateService {
     
     // MARK: - Response Parsing
     
+    private func parseOpenAIResponse(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            return nil
+        }
+        return content
+    }
+    
+    private func parseAnthropicResponse(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contentBlocks = json["content"] as? [[String: Any]],
+              let firstBlock = contentBlocks.first,
+              let text = firstBlock["text"] as? String else {
+            return nil
+        }
+        return text
+    }
+    
     private func parseDictionaryResponse(_ text: String, originalWord: String) -> DictionaryEntry? {
-        // The response might have markdown code fences or extra text
         var jsonStr = text
         
-        // Strip markdown code block if present
         if jsonStr.contains("```") {
             let lines = jsonStr.components(separatedBy: "\n")
             var inBlock = false
@@ -325,27 +365,20 @@ class TranslateService {
                     inBlock.toggle()
                     continue
                 }
-                if inBlock {
-                    blockLines.append(line)
-                }
+                if inBlock { blockLines.append(line) }
             }
-            if !blockLines.isEmpty {
-                jsonStr = blockLines.joined(separator: "\n")
-            }
+            if !blockLines.isEmpty { jsonStr = blockLines.joined(separator: "\n") }
         }
         
-        // Try to extract JSON object from response
         if let start = jsonStr.firstIndex(of: "{"),
            let end = jsonStr.lastIndex(of: "}") {
             jsonStr = String(jsonStr[start...end])
         }
         
-        // Parse JSON
         guard let data = jsonStr.data(using: .utf8) else { return nil }
         
         do {
-            let entry = try JSONDecoder().decode(DictionaryEntry.self, from: data)
-            return entry
+            return try JSONDecoder().decode(DictionaryEntry.self, from: data)
         } catch {
             print("[TranslateService] Failed to parse dictionary JSON: \(error)")
             return nil

@@ -4,6 +4,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var hotkeyManager: HotkeyManager!
     private var popupPanel: PopupPanel!
+    private var settingsPanel: SettingsPanel?
     
     // Python detection: try multiple locations
     private lazy var pythonPath: String = {
@@ -65,6 +66,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize database
         _ = VocabularyDB.shared
         
+        // Auto-detect API config (deepseek-copilot-proxy or custom)
+        let _ = ConfigManager.shared.autoDetect()
+        TranslateService.shared.reloadConfig()
+        
         // Load active paper contexts
         refreshActiveContext()
         
@@ -77,10 +82,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyManager.register()
         checkAccessibility()
         
+        let config = TranslateService.shared.config
         let stats = VocabularyDB.shared.stats()
         let contexts = VocabularyDB.shared.getAllContexts()
         let activeCount = contexts.filter { $0.isActive }.count
-        print("[TranslateApp] ✅ 启动完成 | 词库: \(stats.total) 词条 | 语境: \(activeCount)/\(contexts.count) 篇论文激活")
+        print("[TranslateApp] ✅ 启动完成 | API: \(config.url) (\(config.protocol.displayName)) | 词库: \(stats.total) 词条 | 语境: \(activeCount)/\(contexts.count) 篇论文激活")
     }
     
     // MARK: - Context Management
@@ -161,6 +167,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem(title: "  ⬜ 全部停用", action: #selector(deactivateAll), keyEquivalent: ""))
             menu.addItem(NSMenuItem(title: "  🗑️ 清空所有语境", action: #selector(clearAllContexts), keyEquivalent: ""))
         }
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // API config status
+        let config = TranslateService.shared.config
+        let apiLabel = config.custom
+            ? "🔌 API: \(config.url) (\(config.protocol.displayName))"
+            : "🔌 API: deepseek-copilot-proxy"
+        let apiItem = NSMenuItem(title: apiLabel, action: nil, keyEquivalent: "")
+        apiItem.isEnabled = false
+        menu.addItem(apiItem)
+        menu.addItem(NSMenuItem(title: "⚙️ API 设置...", action: #selector(openSettings), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "🔄 重置为默认代理", action: #selector(resetAPIConfig), keyEquivalent: ""))
         
         menu.addItem(NSMenuItem.separator())
         
@@ -605,5 +624,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+    
+    // MARK: - API Settings
+    
+    @objc private func openSettings() {
+        if settingsPanel == nil {
+            settingsPanel = SettingsPanel()
+            settingsPanel?.onSave = { [weak self] config in
+                TranslateService.shared.reloadConfig()
+                self?.rebuildMenu()
+                print("[TranslateApp] 🔌 API switched to: \(config.url) (\(config.protocol.displayName))")
+            }
+        }
+        settingsPanel?.applyConfig(TranslateService.shared.config)
+        settingsPanel?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc private func resetAPIConfig() {
+        let defaultConfig = APIConfig.proxyDefault
+        ConfigManager.shared.save(defaultConfig)
+        TranslateService.shared.reloadConfig()
+        rebuildMenu()
+        print("[TranslateApp] 🔄 API config reset to default: deepseek-copilot-proxy")
     }
 }
