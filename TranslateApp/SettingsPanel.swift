@@ -9,8 +9,6 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
     private var protocolPopup: NSPopUpButton!
     private var statusLabel: NSTextField!
     private var testButton: NSButton!
-    
-    // Translation settings
     private var langAField: NSTextField!
     private var langBField: NSTextField!
     private var directionPopup: NSPopUpButton!
@@ -18,8 +16,9 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
     var onSave: ((APIConfig) -> Void)?
     
     init() {
+        // Large initial height — will be resized to fit content
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: true
@@ -28,190 +27,155 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         self.title = "API 设置"
         self.isReleasedWhenClosed = false
         self.delegate = self
-        setupUI()
+        
+        // Build all views, then measure and resize
+        buildUI()
         loadConfig()
     }
     
-    // MARK: - UI Setup
+    // MARK: - Pure frame layout (no autolayout — simple and predictable)
     
-    private func setupUI() {
-        guard let contentView = self.contentView else { return }
+    private func buildUI() {
+        guard let cv = self.contentView else { return }
         
-        let padding: CGFloat = 16
-        let labelWidth: CGFloat = 60
-        let fieldHeight: CGFloat = 26
-        let spacing: CGFloat = 10
+        let p: CGFloat = 14           // edge padding
+        let lw: CGFloat = 64          // label width
+        let fh: CGFloat = 26          // field height
+        let sp: CGFloat = 10          // row spacing
+        let fw = panelWidth - p * 2 - lw - 6  // field width
         
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(container)
+        var y: CGFloat = 0  // builds from bottom up
         
-        NSLayoutConstraint.activate([
-            container.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            container.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: padding),
-            container.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -padding),
-            container.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
-        ])
+        func row(_ height: CGFloat = fh + sp) -> CGFloat {
+            let r = y; y += height; return r
+        }
         
-        var nextY: CGFloat = 0
-        let fieldWidth = contentView.frame.width - padding * 2 - labelWidth - 8
+        // --- Status bar (top) ---
+        let infoY = row(22 + sp + 4)
+        let infoRow = NSView(frame: NSRect(x: p, y: infoY, width: fw + lw + 6, height: 22))
+        cv.addSubview(infoRow)
         
-        // Status / info row
-        let infoRow = NSStackView()
-        infoRow.orientation = .horizontal
-        infoRow.spacing = 6
-        infoRow.translatesAutoresizingMaskIntoConstraints = false
-        
-        let indicator = NSImageView()
+        let indicator = NSImageView(frame: NSRect(x: 0, y: 6, width: 10, height: 10))
         indicator.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
-        indicator.setContentHuggingPriority(.required, for: .horizontal)
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        indicator.widthAnchor.constraint(equalToConstant: 10).isActive = true
-        indicator.heightAnchor.constraint(equalToConstant: 10).isActive = true
+        infoRow.addSubview(indicator)
         
         statusLabel = NSTextField(labelWithString: "检测中...")
         statusLabel.font = NSFont.systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
-        statusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        statusLabel.frame = NSRect(x: 16, y: 3, width: 180, height: 16)
+        infoRow.addSubview(statusLabel)
         
         testButton = NSButton(title: "测试连接", target: self, action: #selector(testConnection))
         testButton.bezelStyle = .rounded
         testButton.controlSize = .small
         testButton.font = NSFont.systemFont(ofSize: 11)
-        testButton.setContentHuggingPriority(.required, for: .horizontal)
-        
-        infoRow.addArrangedSubview(indicator)
-        infoRow.addArrangedSubview(statusLabel)
-        infoRow.addArrangedSubview(testButton)
-        
-        container.addSubview(infoRow)
-        infoRow.frame = NSRect(x: 0, y: nextY, width: container.frame.width, height: 22)
-        nextY += 22 + spacing + 4
+        testButton.frame = NSRect(x: 220, y: 1, width: 70, height: 20)
+        infoRow.addSubview(testButton)
         
         // Separator
-        let sep1 = NSBox(); sep1.boxType = .separator; sep1.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(sep1)
-        sep1.frame = NSRect(x: 0, y: nextY, width: container.frame.width, height: 1)
-        nextY += 1 + spacing + 4
+        sep(cv, y)
+        _ = row(sp + 6)
         
-        // === API Section ===
+        // --- API Section ---
+        let apiLabel = NSTextField(labelWithString: "API 配置")
+        apiLabel.font = NSFont.boldSystemFont(ofSize: 11)
+        apiLabel.textColor = .secondaryLabelColor
+        apiLabel.frame = NSRect(x: p, y: y, width: 200, height: 14)
+        cv.addSubview(apiLabel)
+        _ = row(16 + sp - 2)
         
-        // Protocol picker
-        let protoLabel = makeLabel("协议", y: nextY, width: labelWidth, height: fieldHeight)
-        container.addSubview(protoLabel)
-        protocolPopup = NSPopUpButton(frame: NSRect(x: labelWidth + 8, y: nextY - 2, width: fieldWidth, height: fieldHeight), pullsDown: false)
+        // Protocol
+        let pl = fieldLabel("协议", y, cv)
+        protocolPopup = NSPopUpButton(frame: NSRect(x: p + lw + 6, y: y - 2, width: fw, height: fh), pullsDown: false)
         protocolPopup.addItems(withTitles: APIProtocol.allCases.map { $0.displayName })
-        protocolPopup.target = self
-        protocolPopup.action = #selector(protocolChanged)
-        container.addSubview(protocolPopup)
-        nextY += fieldHeight + spacing
+        protocolPopup.target = self; protocolPopup.action = #selector(protocolChanged)
+        cv.addSubview(protocolPopup); cv.addSubview(pl)
+        _ = row()
         
         // URL
-        container.addSubview(makeLabel("URL", y: nextY, width: labelWidth, height: fieldHeight))
-        urlField = makeTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
-        urlField.placeholderString = "http://localhost:8765"
-        container.addSubview(urlField)
-        nextY += fieldHeight + spacing
+        let ul = fieldLabel("URL", y, cv)
+        urlField = field(p + lw + 6, y, fw, fh, "http://localhost:8765"); cv.addSubview(urlField); cv.addSubview(ul)
+        _ = row()
         
         // Key
-        container.addSubview(makeLabel("API Key", y: nextY, width: labelWidth, height: fieldHeight))
-        keyField = NSSecureTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
-        keyField.placeholderString = "sk-..."
-        container.addSubview(keyField)
-        nextY += fieldHeight + spacing
+        let kl = fieldLabel("API Key", y, cv)
+        keyField = NSSecureTextField(frame: NSRect(x: p + lw + 6, y: y, width: fw, height: fh))
+        keyField.font = NSFont.systemFont(ofSize: 12); keyField.placeholderString = "sk-..."
+        cv.addSubview(keyField); cv.addSubview(kl)
+        _ = row()
         
         // Model
-        container.addSubview(makeLabel("模型", y: nextY, width: labelWidth, height: fieldHeight))
-        modelField = makeTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
-        modelField.placeholderString = "deepseek-chat"
-        container.addSubview(modelField)
-        nextY += fieldHeight + spacing + 4
+        let ml = fieldLabel("模型", y, cv)
+        modelField = field(p + lw + 6, y, fw, fh, "deepseek-chat"); cv.addSubview(modelField); cv.addSubview(ml)
+        _ = row(sp + 4)
         
         // Separator
-        let sep2 = NSBox(); sep2.boxType = .separator; sep2.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(sep2)
-        sep2.frame = NSRect(x: 0, y: nextY, width: container.frame.width, height: 1)
-        nextY += 1 + spacing + 4
+        sep(cv, y); _ = row(sp + 6)
         
-        // === Translation Settings ===
+        // --- Translation Settings ---
         let transLabel = NSTextField(labelWithString: "翻译设置")
         transLabel.font = NSFont.boldSystemFont(ofSize: 11)
         transLabel.textColor = .secondaryLabelColor
-        container.addSubview(transLabel)
-        transLabel.frame = NSRect(x: 0, y: nextY, width: 200, height: 16)
-        nextY += 16 + spacing - 2
+        transLabel.frame = NSRect(x: p, y: y, width: 200, height: 14)
+        cv.addSubview(transLabel); _ = row(16 + sp - 2)
         
         // Language A
-        container.addSubview(makeLabel("语言 A", y: nextY, width: labelWidth, height: fieldHeight))
-        langAField = makeTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
-        langAField.placeholderString = "英文"
-        container.addSubview(langAField)
-        nextY += fieldHeight + spacing
+        let lal = fieldLabel("语言 A", y, cv)
+        langAField = field(p + lw + 6, y, fw, fh, "英文"); cv.addSubview(langAField); cv.addSubview(lal)
+        _ = row()
         
         // Language B
-        container.addSubview(makeLabel("语言 B", y: nextY, width: labelWidth, height: fieldHeight))
-        langBField = makeTextField(frame: NSRect(x: labelWidth + 8, y: nextY, width: fieldWidth, height: fieldHeight))
-        langBField.placeholderString = "中文"
-        container.addSubview(langBField)
-        nextY += fieldHeight + spacing
+        let lbl = fieldLabel("语言 B", y, cv)
+        langBField = field(p + lw + 6, y, fw, fh, "中文"); cv.addSubview(langBField); cv.addSubview(lbl)
+        _ = row()
         
         // Direction mode
-        container.addSubview(makeLabel("默认方向", y: nextY, width: labelWidth, height: fieldHeight))
-        directionPopup = NSPopUpButton(frame: NSRect(x: labelWidth + 8, y: nextY - 2, width: fieldWidth, height: fieldHeight), pullsDown: false)
+        let dl = fieldLabel("默认方向", y, cv)
+        directionPopup = NSPopUpButton(frame: NSRect(x: p + lw + 6, y: y - 2, width: fw, height: fh), pullsDown: false)
         directionPopup.addItems(withTitles: DirectionMode.allCases.map { $0.displayName })
-        container.addSubview(directionPopup)
-        nextY += fieldHeight + spacing + 8
+        cv.addSubview(directionPopup); cv.addSubview(dl)
+        _ = row(sp + 10)
         
-        // === Action buttons ===
-        let btnRow = NSStackView()
-        btnRow.orientation = .horizontal
-        btnRow.spacing = 8
-        btnRow.translatesAutoresizingMaskIntoConstraints = false
-        
+        // --- Buttons ---
+        let btnW: CGFloat = 70, btnH: CGFloat = 26
         let cancelBtn = NSButton(title: "取消", target: self, action: #selector(close))
-        cancelBtn.bezelStyle = .rounded
-        cancelBtn.keyEquivalent = "\u{1b}"
+        cancelBtn.frame = NSRect(x: p, y: y, width: btnW, height: btnH)
+        cancelBtn.bezelStyle = .rounded; cancelBtn.keyEquivalent = "\u{1b}"
+        cv.addSubview(cancelBtn)
         
         let saveBtn = NSButton(title: "保存", target: self, action: #selector(saveConfig))
-        saveBtn.bezelStyle = .rounded
-        saveBtn.keyEquivalent = "\r"
-        saveBtn.isHighlighted = true
+        saveBtn.frame = NSRect(x: panelWidth - p - btnW, y: y, width: btnW, height: btnH)
+        saveBtn.bezelStyle = .rounded; saveBtn.keyEquivalent = "\r"; saveBtn.isHighlighted = true
+        cv.addSubview(saveBtn)
+        _ = row(btnH + p)
         
-        btnRow.addArrangedSubview(cancelBtn)
-        btnRow.addArrangedSubview(NSView())
-        btnRow.addArrangedSubview(saveBtn)
-        
-        container.addSubview(btnRow)
-        btnRow.frame = NSRect(x: 0, y: nextY, width: container.frame.width, height: 28)
-        nextY += 28 + 8
-        
-        // Size to fit
-        let totalHeight = nextY + padding
-        self.setContentSize(NSSize(width: panelWidth, height: totalHeight))
-        container.frame = NSRect(x: 0, y: 0, width: panelWidth - padding * 2, height: nextY)
+        // --- Resize window to fit ---
+        self.setContentSize(NSSize(width: panelWidth, height: y))
         self.center()
     }
     
-    private func makeLabel(_ text: String, y: CGFloat, width: CGFloat, height: CGFloat) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.alignment = .right
-        label.font = NSFont.systemFont(ofSize: 12)
-        return label
+    // Helpers
+    private func fieldLabel(_ text: String, _ y: CGFloat, _ parent: NSView) -> NSTextField {
+        let l = NSTextField(labelWithString: text)
+        l.alignment = .right; l.font = NSFont.systemFont(ofSize: 12)
+        l.frame = NSRect(x: 14, y: y + 2, width: 64, height: 22)
+        return l
     }
-    
-    private func makeTextField(frame: NSRect) -> NSTextField {
-        let tf = NSTextField(frame: frame)
-        tf.font = NSFont.systemFont(ofSize: 12)
-        tf.isBezeled = true
-        tf.bezelStyle = .squareBezel
+    private func field(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ placeholder: String) -> NSTextField {
+        let tf = NSTextField(frame: NSRect(x: x, y: y, width: w, height: h))
+        tf.font = NSFont.systemFont(ofSize: 12); tf.isBezeled = true
+        tf.bezelStyle = .squareBezel; tf.placeholderString = placeholder
         return tf
+    }
+    private func sep(_ parent: NSView, _ y: CGFloat) {
+        let s = NSBox(frame: NSRect(x: 14, y: y, width: panelWidth - 28, height: 1))
+        s.boxType = .separator; parent.addSubview(s)
     }
     
     // MARK: - Config
     
     private func loadConfig() {
-        let config = ConfigManager.shared.autoDetect()
-        applyConfig(config)
+        applyConfig(ConfigManager.shared.autoDetect())
     }
     
     func applyConfig(_ config: APIConfig) {
@@ -219,20 +183,14 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         keyField.stringValue = config.apiKey
         modelField.stringValue = config.model
         protocolPopup.selectItem(withTitle: config.protocol.displayName)
-        
         langAField.stringValue = config.langA
         langBField.stringValue = config.langB
         directionPopup.selectItem(withTitle: config.directionMode.displayName)
         
         if !config.custom {
             let reachable = ConfigManager.shared.isProxyReachable()
-            if reachable {
-                statusLabel.stringValue = "✅ 检测到 deepseek-copilot-proxy"
-                statusLabel.textColor = .systemGreen
-            } else {
-                statusLabel.stringValue = "⚠️ 未检测到本地代理，请自定义"
-                statusLabel.textColor = .systemOrange
-            }
+            statusLabel.stringValue = reachable ? "✅ 检测到 deepseek-copilot-proxy" : "⚠️ 未检测到本地代理，请自定义"
+            statusLabel.textColor = reachable ? .systemGreen : .systemOrange
         } else {
             statusLabel.stringValue = "⚙️ 自定义配置"
             statusLabel.textColor = .secondaryLabelColor
@@ -240,62 +198,38 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
     }
     
     @objc private func protocolChanged() {
-        let idx = protocolPopup.indexOfSelectedItem
-        guard idx >= 0, idx < APIProtocol.allCases.count else { return }
-        let proto = APIProtocol.allCases[idx]
-        if proto == .anthropic {
-            modelField.placeholderString = "claude-sonnet-4-20250514"
-            keyField.placeholderString = "sk-ant-..."
-        } else {
-            modelField.placeholderString = "deepseek-chat"
-            keyField.placeholderString = "sk-..."
-        }
+        let proto = APIProtocol.allCases[safe: protocolPopup.indexOfSelectedItem] ?? .openai
+        modelField.placeholderString = proto == .anthropic ? "claude-sonnet-4-20250514" : "deepseek-chat"
+        keyField.placeholderString = proto == .anthropic ? "sk-ant-..." : "sk-..."
     }
     
     // MARK: - Actions
     
     @objc private func testConnection() {
         let config = buildConfig()
-        testButton.title = "测试中..."
-        testButton.isEnabled = false
+        testButton.title = "测试中..."; testButton.isEnabled = false
         
-        var request = URLRequest(url: URL(string: config.chatURL)!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 8
+        var req = URLRequest(url: URL(string: config.chatURL)!)
+        req.httpMethod = "POST"; req.timeoutInterval = 8
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        if config.protocol == .openai {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: [
-                "model": config.model,
-                "messages": [["role": "user", "content": "hi"]],
-                "max_tokens": 1, "stream": false
-            ])
+        if config.protocol == .anthropic {
+            req.setValue(config.apiKey, forHTTPHeaderField: "x-api-key")
+            req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": config.model, "max_tokens": 1, "messages": [["role": "user", "content": "hi"]]])
         } else {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(config.apiKey, forHTTPHeaderField: "x-api-key")
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: [
-                "model": config.model,
-                "max_tokens": 1,
-                "messages": [["role": "user", "content": "hi"]]
-            ])
+            req.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": config.model, "messages": [["role": "user", "content": "hi"]], "max_tokens": 1, "stream": false])
         }
         
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
             DispatchQueue.main.async {
-                self?.testButton.isEnabled = true
-                self?.testButton.title = "测试连接"
-                if let httpResponse = response as? HTTPURLResponse {
-                    if httpResponse.statusCode == 200 {
-                        self?.statusLabel.stringValue = "✅ 连接成功 (HTTP 200)"
-                        self?.statusLabel.textColor = .systemGreen
-                    } else {
-                        self?.statusLabel.stringValue = "⚠️ HTTP \(httpResponse.statusCode)"
-                        self?.statusLabel.textColor = .systemOrange
-                    }
-                } else if let error = error {
-                    self?.statusLabel.stringValue = "❌ \(error.localizedDescription)"
+                self?.testButton.isEnabled = true; self?.testButton.title = "测试连接"
+                if let hr = response as? HTTPURLResponse {
+                    self?.statusLabel.stringValue = hr.statusCode == 200 ? "✅ 连接成功 (HTTP 200)" : "⚠️ HTTP \(hr.statusCode)"
+                    self?.statusLabel.textColor = hr.statusCode == 200 ? .systemGreen : .systemOrange
+                } else if let e = error {
+                    self?.statusLabel.stringValue = "❌ \(e.localizedDescription)"
                     self?.statusLabel.textColor = .systemRed
                 }
             }
@@ -306,31 +240,30 @@ class SettingsPanel: NSWindow, NSWindowDelegate {
         let config = buildConfig()
         ConfigManager.shared.save(config)
         onSave?(config)
-        print("[SettingsPanel] ✅ Config saved: \(config.url) (\(config.protocol.displayName)), 翻译: \(config.langA)↔\(config.langB)")
+        print("[SettingsPanel] ✅ Saved: \(config.protocol.displayName) | \(config.langA)↔\(config.langB)")
         close()
     }
     
     private func buildConfig() -> APIConfig {
-        let protoIdx = protocolPopup.indexOfSelectedItem
-        let proto = (protoIdx >= 0 && protoIdx < APIProtocol.allCases.count)
-            ? APIProtocol.allCases[protoIdx] : APIProtocol.openai
-        
-        let dirIdx = directionPopup.indexOfSelectedItem
-        let dirMode = (dirIdx >= 0 && dirIdx < DirectionMode.allCases.count)
-            ? DirectionMode.allCases[dirIdx] : DirectionMode.toB
-        
-        return APIConfig(
+        APIConfig(
             provider: "custom",
             url: urlField.stringValue.trimmingCharacters(in: .whitespaces),
             apiKey: keyField.stringValue.trimmingCharacters(in: .whitespaces),
             model: modelField.stringValue.trimmingCharacters(in: .whitespaces),
-            protocol: proto,
+            protocol: APIProtocol.allCases[safe: protocolPopup.indexOfSelectedItem] ?? .openai,
             custom: true,
             langA: langAField.stringValue.trimmingCharacters(in: .whitespaces),
             langB: langBField.stringValue.trimmingCharacters(in: .whitespaces),
-            directionMode: dirMode
+            directionMode: DirectionMode.allCases[safe: directionPopup.indexOfSelectedItem] ?? .toB
         )
     }
     
     func windowWillClose(_ notification: Notification) {}
+}
+
+// Safe array access
+extension Array {
+    subscript(safe idx: Int) -> Element? {
+        indices.contains(idx) ? self[idx] : nil
+    }
 }

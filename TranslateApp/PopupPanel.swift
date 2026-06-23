@@ -162,7 +162,9 @@ class PopupPanel: NSPanel, NSWindowDelegate {
         modeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         
         // Direction toggle button
-        directionButton = createDirectionButton()
+        directionButton = createToolbarButton(title: TranslateService.shared.directionLabel, action: #selector(toggleDirection))
+        directionButton.font = NSFont.systemFont(ofSize: baseFontSizeToolbar * fontScale, weight: .medium)
+        directionButton.toolTip = "点击切换翻译方向"
         
         // Spacer
         let spacer = NSView()
@@ -191,19 +193,6 @@ class PopupPanel: NSPanel, NSWindowDelegate {
         
         contentStack.addArrangedSubview(toolbarStack)
         toolbarStack.widthAnchor.constraint(equalTo: contentStack.widthAnchor, constant: -panelPadding * 2).isActive = true
-    }
-    
-    private func createDirectionButton() -> NSButton {
-        let label = TranslateService.shared.directionLabel
-        let btn = NSButton(title: label, target: self, action: #selector(toggleDirection))
-        btn.isBordered = false
-        btn.setButtonType(.momentaryChange)
-        let btnFontSize = baseFontSizeToolbar * fontScale
-        btn.font = NSFont.systemFont(ofSize: btnFontSize, weight: .medium)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.setContentHuggingPriority(.required, for: .horizontal)
-        btn.toolTip = "点击切换翻译方向"
-        return btn
     }
     
     @objc private func toggleDirection() {
